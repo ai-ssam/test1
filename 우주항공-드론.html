@@ -378,7 +378,7 @@ canvas.cv.c1{aspect-ratio:7/1} canvas.cv.c2{aspect-ratio:3.2/1}
 <div class="modal no-print" id="modal" role="dialog" aria-modal="true" aria-label="캡처 이미지">
   <div class="box2">
     <p id="modalMsg"></p>
-    <div class="row"><a class="btn primary" id="modalDl" download="">⬇ PNG로 저장</a><button class="btn" id="modalClose" type="button">닫기</button></div>
+    <div class="row"><button class="btn primary" id="modalShare" type="button" style="display:none">📷 사진으로 저장</button><button class="btn" id="modalCopy" type="button" style="display:none">📋 이미지 복사</button><a class="btn" id="modalDl" download="">⬇ PNG 파일로 저장</a><button class="btn" id="modalClose" type="button">닫기</button></div>
     <img id="modalImg" alt="캡처한 워크북 이미지">
   </div>
 </div>
@@ -595,23 +595,53 @@ canvas.cv.c1{aspect-ratio:7/1} canvas.cv.c2{aspect-ratio:3.2/1}
   /* ---- 워크북 쪽별 / 전체 이미지 캡처 → 클립보드 ---- */
   var toastT;
   function toast(msg){var t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('show')},3500)}
-  var modalUrl=null;
+  var modalUrl=null, curFile=null;
+  function isTouch(){try{return !!(window.matchMedia&&matchMedia('(pointer:coarse)').matches)}catch(e){return false}}
   function closeModal(){$('#modal').classList.remove('show');if(modalUrl){URL.revokeObjectURL(modalUrl);modalUrl=null}}
   $('#modalClose').addEventListener('click',closeModal);
+  $('#modalShare').addEventListener('click',function(){
+    if(!curFile)return;
+    navigator.share({files:[curFile],title:fileBase()}).catch(function(e){if(e&&e.name!=='AbortError')toast('공유창을 열지 못했어요. 이미지를 길게 눌러 저장해 주세요')});
+  });
+  $('#modalCopy').addEventListener('click',function(){
+    if(!curFile)return;
+    var no=function(){toast('복사가 막혀 있어요. 이미지를 길게 눌러 주세요')};
+    try{navigator.clipboard.write([new ClipboardItem({'image/png':curFile})]).then(function(){toast('✔ 이미지를 복사했어요')},no)}catch(e){no()}
+  });
   $('#modal').addEventListener('click',function(e){if(e.target===this)closeModal()});
   function showModal(blob,label,why){
     if(modalUrl)URL.revokeObjectURL(modalUrl);
     modalUrl=URL.createObjectURL(blob);
     $('#modalImg').src=modalUrl;
     var a=$('#modalDl'); a.href=modalUrl; a.download=fileBase()+'_'+label.replace(/\s/g,'')+'.png';
-    $('#modalMsg').textContent=why+' 아래 이미지를 길게 누르거나(모바일) 오른쪽 클릭(PC)해서 ‘이미지 복사’를 눌러 주세요.';
+    curFile=null; try{curFile=new File([blob],fileBase()+'_'+label.replace(/\s/g,'')+'.png',{type:'image/png'})}catch(e){}
+    var canShare=false; try{canShare=!!(curFile&&navigator.share&&navigator.canShare&&navigator.canShare({files:[curFile]}))}catch(e){}
+    $('#modalShare').style.display=canShare?'':'none';
+    $('#modalCopy').style.display=(navigator.clipboard&&navigator.clipboard.write&&window.ClipboardItem)?'':'none';
+    $('#modalMsg').textContent=(why?why+' ':'')+(canShare?'‘📷 사진으로 저장’을 누르고, 나온 창에서 ‘이미지 저장’(사진에 저장)을 선택하세요. ':'')+'이미지를 길게 눌러 ‘사진에 추가/이미지 저장’을 해도 돼요.';
     $('#modal').classList.add('show');
+  }
+  /* 캡처 화면(PC 폭)과 지금 화면(태블릿·폰)의 그림 칸 비율이 달라도 그림이 찌그러지지 않게, 캡처 칸 크기로 다시 그려요 */
+  function syncCanvases(doc){
+    try{
+      var live=$$('canvas'), cl=Array.prototype.slice.call(doc.querySelectorAll('canvas'));
+      var rects=live.map(function(c,i){var t=cl[i]; if(!t)return null; var r=t.getBoundingClientRect(); return (r.width&&r.height)?r:null});
+      live.forEach(function(c,i){var r=rects[i]; if(r)c.getBoundingClientRect=function(){return{width:r.width,height:r.height,left:0,top:0,right:r.width,bottom:r.height,x:0,y:0}}});
+      window.dispatchEvent(new Event('resize'));
+      live.forEach(function(c,i){
+        var t=cl[i]; if(!t||!rects[i])return;
+        try{t.width=c.width; t.height=c.height; var g=t.getContext('2d'); g.clearRect(0,0,t.width,t.height); g.drawImage(c,0,0)}catch(e){}
+      });
+    }finally{
+      $$('canvas').forEach(function(c){try{delete c.getBoundingClientRect}catch(e){}});
+      window.dispatchEvent(new Event('resize'));
+    }
   }
   function shot(id){
     return html2canvas(document.getElementById(id),{
       scale:2, backgroundColor:'#ffffff', logging:false, useCORS:false,
       windowWidth:900, scrollX:0, scrollY:-window.scrollY,
-      onclone:function(doc){doc.documentElement.classList.add('cap')},
+      onclone:function(doc){doc.documentElement.classList.add('cap'); syncCanvases(doc)},
       ignoreElements:function(el){return el.classList&&el.classList.contains('no-print')}
     });
   }
@@ -632,15 +662,15 @@ canvas.cv.c1{aspect-ratio:7/1} canvas.cv.c2{aspect-ratio:3.2/1}
     var blobP=cvP.then(function(cv){
       return new Promise(function(res,rej){cv.toBlob(function(b){b?res(b):rej(new Error('toBlob'))},'image/png')});
     });
-    var wrote;
+    var wrote, touch=isTouch();
     try{
-      if(!(navigator.clipboard&&navigator.clipboard.write&&window.ClipboardItem))throw new Error('no-clipboard');
+      if(touch||!(navigator.clipboard&&navigator.clipboard.write&&window.ClipboardItem))throw new Error('no-clipboard');
       wrote=navigator.clipboard.write([new ClipboardItem({'image/png':blobP})]);
     }catch(e){wrote=Promise.reject(e)}
     wrote.then(function(){
       toast('✔ '+label+(label==='워크북1'?'을':'를')+' 캡처해 복사했어요. 붙여넣기(Ctrl/⌘+V) 하세요');
     }).catch(function(){
-      return blobP.then(function(b){showModal(b,label,'이 브라우저에서는 자동 복사가 막혀 있어요.')},
+      return blobP.then(function(b){showModal(b,label,touch?'':'이 브라우저에서는 자동 복사가 막혀 있어요.')},
                         function(){toast('캡처에 실패했어요. 다시 시도해 주세요')});
     }).then(done,done);
   }

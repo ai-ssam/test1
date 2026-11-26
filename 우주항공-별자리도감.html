@@ -240,6 +240,8 @@ input.line:focus,.nbp input:focus,.nbp textarea:focus{background:#f3f8ff}
 (function(){
   'use strict';
   var KEY='moonbase-dogam-workbook-v1';
+  var EMB={}; try{EMB=JSON.parse(document.getElementById('saved-state').textContent||'{}')||{}}catch(e){}
+  var SKEY=EMB._id?KEY+':'+EMB._id:KEY; /* 저장해서 받은 파일은 파일마다 따로 자동저장 → 다른 학생 파일과 섞이지 않아요 */
   var $=function(s,r){return (r||document).querySelector(s)};
   var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};
   var S={};
@@ -247,9 +249,8 @@ input.line:focus,.nbp input:focus,.nbp textarea:focus{background:#f3f8ff}
 
   /* ---- 저장된 상태: 파일에 담긴 값 vs 브라우저 자동저장 중 더 최신 ---- */
   function readSaved(){
-    var a={},b={};
-    try{a=JSON.parse($('#saved-state').textContent||'{}')||{}}catch(e){}
-    try{b=JSON.parse(localStorage.getItem(KEY)||'{}')||{}}catch(e){}
+    var a=EMB,b={};
+    try{b=JSON.parse(localStorage.getItem(SKEY)||'{}')||{}}catch(e){}
     return (b._t||0)>(a._t||0)?b:a;
   }
   function stamp(){
@@ -258,7 +259,7 @@ input.line:focus,.nbp input:focus,.nbp textarea:focus{background:#f3f8ff}
   }
   function save(){
     S._t=Date.now();
-    try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
+    try{localStorage.setItem(SKEY,JSON.stringify(S))}catch(e){}
     stamp();
   }
 
@@ -461,9 +462,13 @@ input.line:focus,.nbp input:focus,.nbp textarea:focus{background:#f3f8ff}
     if(needName())return;
     save();
     var clone=document.documentElement.cloneNode(true);
-    clone.querySelector('#saved-state').textContent=JSON.stringify(S).replace(/</g,'\\u003c');
-    $$('.chips',clone).forEach(function(g){g.innerHTML=''});
-    $$('.cb',clone).forEach(function(g){g.innerHTML=''});
+    var snap=JSON.parse(JSON.stringify(S)); snap._id=Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+    clone.querySelector('#saved-state').textContent=JSON.stringify(snap).replace(/</g,'\\u003c');
+    /* 스크립트가 막힌 곳(패들렛 미리보기 등)에서도 내용이 보이도록 입력값·그림을 파일 안에 그대로 심어요 */
+    $$('input[data-k]',clone).forEach(function(el){el.setAttribute('value',el.value)});
+    $$('textarea[data-k]',clone).forEach(function(el){el.textContent=el.value});
+    var lc=$$('canvas'), cc=$$('canvas',clone);
+    lc.forEach(function(c,i){try{var d=c.toDataURL('image/png'),t=cc[i]; t.style.backgroundImage='url('+d+')'; t.style.backgroundSize='100% 100%'; t.style.backgroundRepeat='no-repeat'}catch(e){}});
     clone.querySelector('#status').textContent='저장된 파일을 열었어요';
     download(new Blob(['<!DOCTYPE html>\n'+clone.outerHTML],{type:'text/html;charset=utf-8'}),fileBase()+'.html');
   });
@@ -547,6 +552,7 @@ input.line:focus,.nbp input:focus,.nbp textarea:focus{background:#f3f8ff}
   }
   $('#btnCap').addEventListener('click',function(){capture(['page1'],'워크북',this)});
 
+  $$('canvas').forEach(function(c){c.style.backgroundImage='';c.style.backgroundSize='';c.style.backgroundRepeat=''});
   S=readSaved();
   apply();
   if(S._t)stamp();
